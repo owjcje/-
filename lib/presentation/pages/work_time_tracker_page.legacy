@@ -1,0 +1,236 @@
+// 历史内存版页面，已由 MVVM 页面替代。
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:work_time_tracker/application/time_tracker_controller.dart';
+import 'package:work_time_tracker/application/time_tracker_state.dart';
+import 'package:work_time_tracker/domain/entities/work_item_status.dart';
+import 'package:work_time_tracker/domain/entities/work_task.dart';
+import 'package:work_time_tracker/l10n/app_localizations.dart';
+import 'package:work_time_tracker/presentation/widgets/create_work_item_dialog.dart';
+import 'package:work_time_tracker/presentation/widgets/task_detail_panel.dart';
+import 'package:work_time_tracker/presentation/widgets/task_sidebar.dart';
+
+class WorkTimeTrackerPage extends ConsumerStatefulWidget {
+  const WorkTimeTrackerPage({super.key});
+
+  @override
+  ConsumerState<WorkTimeTrackerPage> createState() {
+    return _WorkTimeTrackerPageState();
+  }
+}
+
+class _WorkTimeTrackerPageState extends ConsumerState<WorkTimeTrackerPage> {
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations localizations = AppLocalizations.of(context);
+    final TimeTrackerState trackerState = ref.watch(
+      timeTrackerControllerProvider,
+    );
+    return Scaffold(
+      body: SafeArea(
+        child: Column(
+          children: <Widget>[
+            _buildApplicationHeader(localizations),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (BuildContext context, BoxConstraints constraints) {
+                  return constraints.maxWidth >= 900 // 桌面端左右分栏断点
+                      ? _buildWideLayout(trackerState)
+                      : _buildCompactLayout(trackerState);
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildApplicationHeader(AppLocalizations localizations) {
+    return Container(
+      height: 72, // 桌面端标题栏高度
+      padding: const EdgeInsets.symmetric(horizontal: 28),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          bottom: BorderSide(color: Color(0xFFE6E8F0)),
+        ),
+      ),
+      child: Row(
+        children: <Widget>[
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Icons.timer_outlined, color: Colors.white),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            localizations.appTitle,
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          const SizedBox(width: 12),
+          _buildPrototypeBadge(localizations),
+          const Spacer(),
+          Flexible(
+            child: Text(
+              localizations.localOnlyNotice,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF737789),
+                  ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPrototypeBadge(AppLocalizations localizations) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEEEFFD),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        localizations.prototypeBadge,
+        style: const TextStyle(
+          color: Color(0xFF5153C4),
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWideLayout(TimeTrackerState trackerState) {
+    return Row(
+      children: <Widget>[
+        SizedBox(
+          width: 360, // 桌面端主任务导航固定宽度
+          child: _buildTaskSidebar(trackerState, false),
+        ),
+        const VerticalDivider(width: 1, thickness: 1),
+        Expanded(child: _buildTaskDetail(trackerState)),
+      ],
+    );
+  }
+
+  Widget _buildCompactLayout(TimeTrackerState trackerState) {
+    return Column(
+      children: <Widget>[
+        SizedBox(
+          height: 290, // 窄窗口主任务筛选与横向列表高度
+          child: _buildTaskSidebar(trackerState, true),
+        ),
+        const Divider(height: 1, thickness: 1),
+        Expanded(child: _buildTaskDetail(trackerState)),
+      ],
+    );
+  }
+
+  Widget _buildTaskSidebar(
+    TimeTrackerState trackerState,
+    bool isCompact,
+  ) {
+    return TaskSidebar(
+      tasks: trackerState.visibleTasks,
+      selectedTaskId: trackerState.selectedTaskId,
+      currentTime: trackerState.currentTime,
+      isCompact: isCompact,
+      selectedFilter: trackerState.taskFilter,
+      onTaskSelected: (String taskId) {
+        ref.read(timeTrackerControllerProvider.notifier).selectTask(taskId);
+      },
+      onFilterChanged: (WorkStatusFilter filter) {
+        ref.read(timeTrackerControllerProvider.notifier).setTaskFilter(filter);
+      },
+      onSearchChanged: (String query) {
+        ref.read(timeTrackerControllerProvider.notifier).searchTasks(query);
+      },
+      onCreateTask: _showCreateTaskDialog,
+      onTaskStatusChanged: (String taskId, WorkItemStatus status) {
+        ref
+            .read(timeTrackerControllerProvider.notifier)
+            .updateTaskStatus(taskId, status);
+      },
+    );
+  }
+
+  Widget _buildTaskDetail(TimeTrackerState trackerState) {
+    final WorkTask selectedTask = trackerState.selectedTask;
+    return TaskDetailPanel(
+      task: selectedTask,
+      subtasks: trackerState.visibleSubtasks,
+      currentTime: trackerState.currentTime,
+      selectedFilter: trackerState.subtaskFilter,
+      onStartTimer: (String taskId, String subtaskId) {
+        ref
+            .read(timeTrackerControllerProvider.notifier)
+            .startSubtask(taskId, subtaskId);
+      },
+      onStopTimer: (String taskId, String subtaskId) {
+        ref
+            .read(timeTrackerControllerProvider.notifier)
+            .stopSubtask(taskId, subtaskId);
+      },
+      onFilterChanged: (WorkStatusFilter filter) {
+        ref
+            .read(timeTrackerControllerProvider.notifier)
+            .setSubtaskFilter(filter);
+      },
+      onSearchChanged: (String query) {
+        ref.read(timeTrackerControllerProvider.notifier).searchSubtasks(query);
+      },
+      onCreateSubtask: _showCreateSubtaskDialog,
+      onSubtaskStatusChanged: (
+        String taskId,
+        String subtaskId,
+        WorkItemStatus status,
+      ) {
+        ref
+            .read(timeTrackerControllerProvider.notifier)
+            .updateSubtaskStatus(taskId, subtaskId, status);
+      },
+    );
+  }
+
+  Future<void> _showCreateTaskDialog() async {
+    final CreateWorkItemResult? result =
+        await showDialog<CreateWorkItemResult>(
+      context: context,
+      builder: (BuildContext context) {
+        return const CreateWorkItemDialog(isSubtask: false);
+      },
+    );
+    if (result == null || !mounted) {
+      return;
+    }
+    ref
+        .read(timeTrackerControllerProvider.notifier)
+        .createTask(result.title, result.status);
+  }
+
+  Future<void> _showCreateSubtaskDialog() async {
+    final String taskId = ref.read(timeTrackerControllerProvider).selectedTaskId;
+    final CreateWorkItemResult? result =
+        await showDialog<CreateWorkItemResult>(
+      context: context,
+      builder: (BuildContext context) {
+        return const CreateWorkItemDialog(isSubtask: true);
+      },
+    );
+    if (result == null || !mounted) {
+      return;
+    }
+    ref
+        .read(timeTrackerControllerProvider.notifier)
+        .createSubtask(taskId, result.title, result.status);
+  }
+}

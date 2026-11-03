@@ -1,0 +1,18 @@
+// 历史示例数据测试，已由独立实体测试替代。
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:work_time_tracker/app.dart';
+
+void main() {
+  testWidgets('shows the work-time prototype', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      const ProviderScope(
+        child: WorkTimeTrackerApp(),
+      ),
+    );
+    expect(find.text('工时记录'), findsOneWidget);
+    expect(find.byIcon(Icons.timer_outlined), findsOneWidget);
+    expect(find.text('客户门户改版'), findsWidgets);
+  });
+}

@@ -1,0 +1,170 @@
+// 历史内存版组件，已由 MVVM 组件替代。
+import 'package:flutter/material.dart';
+import 'package:work_time_tracker/application/time_tracker_state.dart';
+import 'package:work_time_tracker/domain/entities/work_item_status.dart';
+import 'package:work_time_tracker/domain/entities/work_subtask.dart';
+import 'package:work_time_tracker/domain/entities/work_task.dart';
+import 'package:work_time_tracker/l10n/app_localizations.dart';
+import 'package:work_time_tracker/presentation/widgets/task_summary_header.dart';
+import 'package:work_time_tracker/presentation/widgets/work_subtask_card.dart';
+
+class TaskDetailPanel extends StatelessWidget {
+  const TaskDetailPanel({
+    required this.task,
+    required this.subtasks,
+    required this.currentTime,
+    required this.selectedFilter,
+    required this.onStartTimer,
+    required this.onStopTimer,
+    required this.onFilterChanged,
+    required this.onSearchChanged,
+    required this.onCreateSubtask,
+    required this.onSubtaskStatusChanged,
+    super.key,
+  });
+
+  final WorkTask task;
+  final List<WorkSubtask> subtasks;
+  final DateTime currentTime;
+  final WorkStatusFilter selectedFilter;
+  final void Function(String taskId, String subtaskId) onStartTimer;
+  final void Function(String taskId, String subtaskId) onStopTimer;
+  final ValueChanged<WorkStatusFilter> onFilterChanged;
+  final ValueChanged<String> onSearchChanged;
+  final VoidCallback onCreateSubtask;
+  final void Function(
+    String taskId,
+    String subtaskId,
+    WorkItemStatus status,
+  ) onSubtaskStatusChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations localizations = AppLocalizations.of(context);
+    return ColoredBox(
+      color: const Color(0xFFF5F6FA),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1040), // 内容区最大可读宽度
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(28, 26, 28, 22),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                TaskSummaryHeader(task: task, currentTime: currentTime),
+                const SizedBox(height: 24),
+                _buildSectionHeader(context, localizations),
+                const SizedBox(height: 12),
+                _buildStatusTabs(localizations),
+                const SizedBox(height: 12),
+                _buildSearchField(localizations),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: subtasks.isEmpty
+                      ? _buildEmptyState(context, localizations)
+                      : _buildSubtaskList(),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(
+    BuildContext context,
+    AppLocalizations localizations,
+  ) {
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: Text(
+            localizations.subtaskList,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ),
+        Semantics(
+          identifier: 'workTimeTrackerPage.createSubtaskButton', // 自动化测试用标识：创建子任务按钮
+          child: FilledButton.icon(
+            onPressed: onCreateSubtask,
+            icon: const Icon(Icons.add, size: 18),
+            label: Text(localizations.createSubtask),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatusTabs(AppLocalizations localizations) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: WorkStatusFilter.values.map((WorkStatusFilter filter) {
+        return Semantics(
+          identifier: 'workTimeTrackerPage.subtaskStatusTab.${filter.name}', // 自动化测试用标识：子任务状态分类标签
+          child: ChoiceChip(
+            label: Text(localizations.statusFilter(filter)),
+            selected: selectedFilter == filter,
+            onSelected: (bool isSelected) {
+              if (isSelected) {
+                onFilterChanged(filter);
+              }
+            },
+          ),
+        );
+      }).toList(growable: false),
+    );
+  }
+
+  Widget _buildSearchField(AppLocalizations localizations) {
+    return Semantics(
+      identifier: 'workTimeTrackerPage.subtaskSearchInput', // 自动化测试用标识：子任务搜索输入框
+      child: TextField(
+        onChanged: onSearchChanged,
+        decoration: InputDecoration(
+          isDense: true,
+          hintText: localizations.subtaskSearchHint,
+          prefixIcon: const Icon(Icons.search, size: 20),
+          border: const OutlineInputBorder(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(
+    BuildContext context,
+    AppLocalizations localizations,
+  ) {
+    return Center(
+      child: Text(
+        localizations.noMatchingSubtasks,
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: const Color(0xFF85899A),
+            ),
+      ),
+    );
+  }
+
+  Widget _buildSubtaskList() {
+    return ListView.separated(
+      itemCount: subtasks.length,
+      separatorBuilder: (BuildContext context, int index) {
+        return const SizedBox(height: 12);
+      },
+      itemBuilder: (BuildContext context, int index) {
+        final WorkSubtask subtask = subtasks[index];
+        return WorkSubtaskCard(
+          taskId: task.id,
+          subtask: subtask,
+          currentTime: currentTime,
+          onStartTimer: onStartTimer,
+          onStopTimer: onStopTimer,
+          onStatusChanged: onSubtaskStatusChanged,
+        );
+      },
+    );
+  }
+}

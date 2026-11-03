@@ -1,0 +1,408 @@
+// 历史内存版组件，已由 MVVM 组件替代。
+import 'dart:ui';
+
+import 'package:flutter/material.dart';
+import 'package:work_time_tracker/core/utils/time_formatters.dart';
+import 'package:work_time_tracker/domain/entities/work_item_status.dart';
+import 'package:work_time_tracker/domain/entities/work_subtask.dart';
+import 'package:work_time_tracker/domain/entities/work_time_entry.dart';
+import 'package:work_time_tracker/l10n/app_localizations.dart';
+
+class WorkSubtaskCard extends StatelessWidget {
+  const WorkSubtaskCard({
+    required this.taskId,
+    required this.subtask,
+    required this.currentTime,
+    required this.onStartTimer,
+    required this.onStopTimer,
+    required this.onStatusChanged,
+    super.key,
+  });
+
+  final String taskId;
+  final WorkSubtask subtask;
+  final DateTime currentTime;
+  final void Function(String taskId, String subtaskId) onStartTimer;
+  final void Function(String taskId, String subtaskId) onStopTimer;
+  final void Function(
+    String taskId,
+    String subtaskId,
+    WorkItemStatus status,
+  ) onStatusChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations localizations = AppLocalizations.of(context);
+    return Semantics(
+      identifier: 'workTimeTrackerPage.subtaskCard.${subtask.id}', // 自动化测试用标识：子任务卡片
+      container: true,
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: _buildCardDecoration(),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            LayoutBuilder(
+              builder: (BuildContext context, BoxConstraints constraints) {
+                return constraints.maxWidth >= 680 // 子任务卡横向布局断点
+                    ? _buildWideContent(context, localizations)
+                    : _buildCompactContent(context, localizations);
+              },
+            ),
+            const SizedBox(height: 18),
+            const Divider(height: 1),
+            const SizedBox(height: 14),
+            _buildTimeEntryList(context, localizations),
+          ],
+        ),
+      ),
+    );
+  }
+
+  BoxDecoration _buildCardDecoration() {
+    return BoxDecoration(
+      color: subtask.isRunning ? const Color(0xFFFCFCFF) : Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(
+        color: subtask.isRunning
+            ? const Color(0xFFBFC0F5)
+            : const Color(0xFFE6E8F0),
+      ),
+    );
+  }
+
+  Widget _buildWideContent(
+    BuildContext context,
+    AppLocalizations localizations,
+  ) {
+    return Row(
+      children: <Widget>[
+        Expanded(flex: 3, child: _buildIdentity(context, localizations)),
+        const SizedBox(width: 20),
+        Expanded(flex: 4, child: _buildTimingDetails(context, localizations)),
+        const SizedBox(width: 20),
+        _buildActionButton(localizations),
+      ],
+    );
+  }
+
+  Widget _buildCompactContent(
+    BuildContext context,
+    AppLocalizations localizations,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        _buildIdentity(context, localizations),
+        const SizedBox(height: 16),
+        _buildTimingDetails(context, localizations),
+        const SizedBox(height: 16),
+        Align(
+          alignment: Alignment.centerRight,
+          child: _buildActionButton(localizations),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildIdentity(
+    BuildContext context,
+    AppLocalizations localizations,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        _buildIdentityRow(context),
+        const SizedBox(height: 8),
+        _buildStatusSelector(context, localizations),
+      ],
+    );
+  }
+
+  Widget _buildStatusSelector(
+    BuildContext context,
+    AppLocalizations localizations,
+  ) {
+    return Semantics(
+      identifier: 'workTimeTrackerPage.subtaskStatusSelect.${subtask.id}', // 自动化测试用标识：子任务状态选择器
+      child: PopupMenuButton<WorkItemStatus>(
+        initialValue: subtask.status,
+        tooltip: localizations.selectStatus,
+        onSelected: (WorkItemStatus status) {
+          onStatusChanged(taskId, subtask.id, status);
+        },
+        itemBuilder: (BuildContext context) {
+          return WorkItemStatus.values.map((WorkItemStatus status) {
+            return PopupMenuItem<WorkItemStatus>(
+              value: status,
+              child: Semantics(
+                identifier: 'workTimeTrackerPage.subtaskStatusOption.${subtask.id}.${status.name}', // 自动化测试用标识：子任务状态选项
+                child: Text(localizations.workItemStatus(status)),
+              ),
+            );
+          }).toList(growable: false);
+        },
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              localizations.workItemStatus(subtask.status),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: subtask.isRunning
+                        ? Theme.of(context).colorScheme.primary
+                        : const Color(0xFF737789),
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+            const SizedBox(width: 3),
+            const Icon(Icons.arrow_drop_down, size: 17),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildIdentityRow(BuildContext context) {
+    return Row(
+      children: <Widget>[
+        Icon(
+          subtask.isRunning ? Icons.radio_button_checked : Icons.circle_outlined,
+          size: 18,
+          color: subtask.isRunning
+              ? Theme.of(context).colorScheme.primary
+              : const Color(0xFFA0A4B2),
+        ),
+        const SizedBox(width: 9),
+        Expanded(
+          child: Text(
+            subtask.title,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTimingDetails(
+    BuildContext context,
+    AppLocalizations localizations,
+  ) {
+    return Wrap(
+      spacing: 26,
+      runSpacing: 12,
+      children: <Widget>[
+        _buildTimeField(
+          context,
+          localizations.createdAt,
+          formatDate(subtask.createdAt),
+          false,
+        ),
+        _buildTimeField(
+          context,
+          localizations.totalTime,
+          formatDuration(subtask.getElapsedSeconds(currentTime)),
+          true,
+        ),
+        _buildTimeField(
+          context,
+          localizations.startedAt,
+          _formatOptionalTime(localizations, subtask.lastStartedAt),
+          false,
+        ),
+        _buildTimeField(
+          context,
+          localizations.endedAt,
+          _formatOptionalTime(localizations, subtask.lastEndedAt),
+          false,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTimeField(
+    BuildContext context,
+    String label,
+    String value,
+    bool isEmphasized,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: const Color(0xFF85899A),
+              ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          value,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                fontWeight: isEmphasized ? FontWeight.w700 : FontWeight.w500,
+                fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+              ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActionButton(AppLocalizations localizations) {
+    if (subtask.isRunning) {
+      return Semantics(
+        identifier: 'workTimeTrackerPage.stopTimerButton.${subtask.id}', // 自动化测试用标识：停止计时按钮
+        child: FilledButton.icon(
+          onPressed: () => onStopTimer(taskId, subtask.id),
+          icon: const Icon(Icons.stop_rounded, size: 18),
+          label: Text(localizations.stopTimer),
+        ),
+      );
+    }
+    return Semantics(
+      identifier: 'workTimeTrackerPage.startTimerButton.${subtask.id}', // 自动化测试用标识：开始计时按钮
+      child: OutlinedButton.icon(
+        onPressed: subtask.status == WorkItemStatus.completed
+            ? null
+            : () => onStartTimer(taskId, subtask.id),
+        icon: const Icon(Icons.play_arrow_rounded, size: 19),
+        label: Text(localizations.startTimer),
+      ),
+    );
+  }
+
+  Widget _buildTimeEntryList(
+    BuildContext context,
+    AppLocalizations localizations,
+  ) {
+    return Semantics(
+      identifier: 'workTimeTrackerPage.timeEntryToggle.${subtask.id}', // 自动化测试用标识：计时记录展开收起按钮
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          key: ValueKey<String>('timeEntryExpansion_${subtask.id}'),
+          initiallyExpanded: false,
+          maintainState: true,
+          tilePadding: EdgeInsets.zero,
+          childrenPadding: const EdgeInsets.only(top: 10),
+          title: Row(
+            children: <Widget>[
+              Text(
+                localizations.timeEntries,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                localizations.timeEntryCount(subtask.timeEntries.length),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF85899A),
+                    ),
+              ),
+            ],
+          ),
+          children: <Widget>[
+            if (subtask.timeEntries.isEmpty)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  localizations.notRecorded,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF85899A),
+                      ),
+                ),
+              )
+            else
+              _buildTimeEntryTable(context, localizations),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTimeEntryTable(
+    BuildContext context,
+    AppLocalizations localizations,
+  ) {
+    final List<WorkTimeEntry> entries = subtask.timeEntries.reversed.toList(
+      growable: false,
+    );
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: SizedBox(
+        width: 720, // 计时记录四列表格的最小展示宽度
+        child: Column(
+          children: <Widget>[
+            _buildEntryRow(context, localizations, null, 0, true),
+            ...List<Widget>.generate(entries.length, (int index) {
+              return _buildEntryRow(
+                context,
+                localizations,
+                entries[index],
+                entries.length - index,
+                false,
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEntryRow(
+    BuildContext context,
+    AppLocalizations localizations,
+    WorkTimeEntry? entry,
+    int entryNumber,
+    bool isHeader,
+  ) {
+    final TextStyle? textStyle = isHeader
+        ? Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: const Color(0xFF737789),
+              fontWeight: FontWeight.w700,
+            )
+        : Theme.of(context).textTheme.bodySmall;
+    final Widget row = Container(
+      padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 8),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: Color(0xFFEDEEF3))),
+      ),
+      child: Row(
+        children: <Widget>[
+          SizedBox(width: 70, child: Text(isHeader ? localizations.entryNumber : '$entryNumber', style: textStyle)),
+          Expanded(child: Text(isHeader ? localizations.startedAt : formatDateTime(entry!.startedAt), style: textStyle)),
+          Expanded(child: Text(isHeader ? localizations.endedAt : _formatEntryEnd(localizations, entry!), style: textStyle)),
+          SizedBox(width: 110, child: Text(isHeader ? localizations.duration : formatDuration(entry!.getElapsedSeconds(currentTime)), style: textStyle)),
+        ],
+      ),
+    );
+    if (entry == null) {
+      return row;
+    }
+    return Semantics(
+      identifier: 'workTimeTrackerPage.timeEntryRow.${entry.id}', // 自动化测试用标识：单次计时记录行
+      child: row,
+    );
+  }
+
+  String _formatEntryEnd(
+    AppLocalizations localizations,
+    WorkTimeEntry entry,
+  ) {
+    final DateTime? endedAt = entry.endedAt;
+    return endedAt == null
+        ? localizations.currentTiming
+        : formatDateTime(endedAt);
+  }
+
+  String _formatOptionalTime(
+    AppLocalizations localizations,
+    DateTime? dateTime,
+  ) {
+    if (dateTime == null) {
+      return localizations.notRecorded;
+    }
+    return formatDateTime(dateTime);
+  }
+}

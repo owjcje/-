@@ -1,0 +1,86 @@
+// 历史嵌套状态，已由独立 ViewModel 状态替代。
+import 'package:work_time_tracker/domain/entities/work_item_status.dart';
+import 'package:work_time_tracker/domain/entities/work_subtask.dart';
+import 'package:work_time_tracker/domain/entities/work_task.dart';
+
+enum WorkStatusFilter {
+  all,
+  inProgress,
+  notStarted,
+  completed;
+
+  bool includes(WorkItemStatus status) {
+    return switch (this) {
+      WorkStatusFilter.all => true,
+      WorkStatusFilter.inProgress => status == WorkItemStatus.inProgress,
+      WorkStatusFilter.notStarted => status == WorkItemStatus.notStarted,
+      WorkStatusFilter.completed => status == WorkItemStatus.completed,
+    };
+  }
+}
+
+class TimeTrackerState {
+  TimeTrackerState({
+    required List<WorkTask> tasks,
+    required this.selectedTaskId,
+    required this.currentTime,
+    this.taskFilter = WorkStatusFilter.all,
+    this.subtaskFilter = WorkStatusFilter.all,
+    this.taskSearchQuery = '',
+    this.subtaskSearchQuery = '',
+  }) : tasks = List<WorkTask>.unmodifiable(tasks);
+
+  final List<WorkTask> tasks;
+  final String selectedTaskId;
+  final DateTime currentTime;
+  final WorkStatusFilter taskFilter;
+  final WorkStatusFilter subtaskFilter;
+  final String taskSearchQuery;
+  final String subtaskSearchQuery;
+
+  WorkTask get selectedTask {
+    return tasks.firstWhere(
+      (WorkTask task) => task.id == selectedTaskId,
+    );
+  }
+
+  List<WorkTask> get visibleTasks {
+    final String normalizedQuery = taskSearchQuery.trim().toLowerCase();
+    return tasks.where((WorkTask task) {
+      final bool matchesStatus = taskFilter.includes(task.status);
+      final bool matchesQuery = normalizedQuery.isEmpty ||
+          task.title.toLowerCase().contains(normalizedQuery);
+      return matchesStatus && matchesQuery;
+    }).toList(growable: false);
+  }
+
+  List<WorkSubtask> get visibleSubtasks {
+    final String normalizedQuery = subtaskSearchQuery.trim().toLowerCase();
+    return selectedTask.subtasks.where((WorkSubtask subtask) {
+      final bool matchesStatus = subtaskFilter.includes(subtask.status);
+      final bool matchesQuery = normalizedQuery.isEmpty ||
+          subtask.title.toLowerCase().contains(normalizedQuery);
+      return matchesStatus && matchesQuery;
+    }).toList(growable: false);
+  }
+
+  TimeTrackerState copyWith({
+    List<WorkTask>? tasks,
+    String? selectedTaskId,
+    DateTime? currentTime,
+    WorkStatusFilter? taskFilter,
+    WorkStatusFilter? subtaskFilter,
+    String? taskSearchQuery,
+    String? subtaskSearchQuery,
+  }) {
+    return TimeTrackerState(
+      tasks: tasks ?? this.tasks,
+      selectedTaskId: selectedTaskId ?? this.selectedTaskId,
+      currentTime: currentTime ?? this.currentTime,
+      taskFilter: taskFilter ?? this.taskFilter,
+      subtaskFilter: subtaskFilter ?? this.subtaskFilter,
+      taskSearchQuery: taskSearchQuery ?? this.taskSearchQuery,
+      subtaskSearchQuery: subtaskSearchQuery ?? this.subtaskSearchQuery,
+    );
+  }
+}

@@ -1,0 +1,338 @@
+// 历史内存版控制器，已由拆分后的 ViewModel 替代。
+import 'dart:async';
+
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:work_time_tracker/application/time_tracker_state.dart';
+import 'package:work_time_tracker/domain/entities/work_item_status.dart';
+import 'package:work_time_tracker/domain/entities/work_subtask.dart';
+import 'package:work_time_tracker/domain/entities/work_task.dart';
+import 'package:work_time_tracker/domain/entities/work_time_entry.dart';
+
+final StateNotifierProvider<TimeTrackerController, TimeTrackerState>
+    timeTrackerControllerProvider =
+    StateNotifierProvider<TimeTrackerController, TimeTrackerState>(
+  (
+    StateNotifierProviderRef<TimeTrackerController, TimeTrackerState> ref,
+  ) =>
+      TimeTrackerController(),
+);
+
+class TimeTrackerController extends StateNotifier<TimeTrackerState> {
+  TimeTrackerController() : super(_buildInitialState()) {
+    _ticker = Timer.periodic(
+      const Duration(seconds: 1),
+      (Timer timer) => _refreshCurrentTime(),
+    );
+  }
+
+  late final Timer _ticker;
+
+  void selectTask(String taskId) {
+    if (taskId == state.selectedTaskId) {
+      return;
+    }
+    state = state.copyWith(selectedTaskId: taskId);
+  }
+
+  void setTaskFilter(WorkStatusFilter filter) {
+    state = state.copyWith(taskFilter: filter);
+  }
+
+  void setSubtaskFilter(WorkStatusFilter filter) {
+    state = state.copyWith(subtaskFilter: filter);
+  }
+
+  void searchTasks(String query) {
+    state = state.copyWith(taskSearchQuery: query);
+  }
+
+  void searchSubtasks(String query) {
+    state = state.copyWith(subtaskSearchQuery: query);
+  }
+
+  void createTask(String title, WorkItemStatus status) {
+    final DateTime createdAt = DateTime.now();
+    final List<int> colorValues = <int>[
+      0xFF5B5CE2,
+      0xFF00A389,
+      0xFFFF8A4C,
+      0xFFE15B8D,
+    ];
+    final WorkTask task = WorkTask(
+      id: 'task_${createdAt.microsecondsSinceEpoch}',
+      title: title,
+      colorValue: colorValues[state.tasks.length % colorValues.length],
+      status: status,
+      createdAt: createdAt,
+      subtasks: <WorkSubtask>[],
+    );
+    state = state.copyWith(
+      tasks: <WorkTask>[...state.tasks, task],
+      selectedTaskId: task.id,
+      currentTime: createdAt,
+    );
+  }
+
+  void createSubtask(
+    String taskId,
+    String title,
+    WorkItemStatus status,
+  ) {
+    final DateTime createdAt = DateTime.now();
+    final WorkSubtask subtask = WorkSubtask(
+      id: 'subtask_${createdAt.microsecondsSinceEpoch}',
+      title: title,
+      status: status,
+      createdAt: createdAt,
+      timeEntries: <WorkTimeEntry>[],
+    );
+    final List<WorkTask> updatedTasks = state.tasks.map((WorkTask task) {
+      if (task.id != taskId) {
+        return task;
+      }
+      return task.copyWith(
+        subtasks: <WorkSubtask>[...task.subtasks, subtask],
+      );
+    }).toList(growable: false);
+    state = state.copyWith(tasks: updatedTasks, currentTime: createdAt);
+  }
+
+  void updateTaskStatus(String taskId, WorkItemStatus status) {
+    final DateTime changedAt = DateTime.now();
+    final List<WorkTask> updatedTasks = state.tasks.map((WorkTask task) {
+      if (task.id != taskId) {
+        return task;
+      }
+      final WorkTask updatedTask = status == WorkItemStatus.completed
+          ? task.stopRunningSubtasks(changedAt)
+          : task;
+      return updatedTask.copyWith(status: status);
+    }).toList(growable: false);
+    state = state.copyWith(tasks: updatedTasks, currentTime: changedAt);
+  }
+
+  void updateSubtaskStatus(
+    String taskId,
+    String subtaskId,
+    WorkItemStatus status,
+  ) {
+    final DateTime changedAt = DateTime.now();
+    final List<WorkTask> updatedTasks = state.tasks.map((WorkTask task) {
+      if (task.id != taskId) {
+        return task;
+      }
+      final WorkSubtask subtask = task.subtasks.firstWhere(
+        (WorkSubtask item) => item.id == subtaskId,
+      );
+      final WorkSubtask updatedSubtask = status == WorkItemStatus.completed
+          ? subtask.stopTracking(changedAt)
+          : subtask;
+      return task.updateSubtask(updatedSubtask.copyWith(status: status));
+    }).toList(growable: false);
+    state = state.copyWith(tasks: updatedTasks, currentTime: changedAt);
+  }
+
+  void startSubtask(String taskId, String subtaskId) {
+    final DateTime startedAt = DateTime.now();
+    final List<WorkTask> stoppedTasks = state.tasks.map(
+      (WorkTask task) => task.stopRunningSubtasks(startedAt),
+    ).toList(growable: false);
+    final List<WorkTask> updatedTasks = stoppedTasks.map(
+      (WorkTask task) => _startTargetSubtask(
+        task: task,
+        taskId: taskId,
+        subtaskId: subtaskId,
+        startedAt: startedAt,
+      ),
+    ).toList(growable: false);
+    state = state.copyWith(tasks: updatedTasks, currentTime: startedAt);
+  }
+
+  void stopSubtask(String taskId, String subtaskId) {
+    final DateTime endedAt = DateTime.now();
+    final List<WorkTask> updatedTasks = state.tasks.map(
+      (WorkTask task) => _stopTargetSubtask(
+        task: task,
+        taskId: taskId,
+        subtaskId: subtaskId,
+        endedAt: endedAt,
+      ),
+    ).toList(growable: false);
+    state = state.copyWith(tasks: updatedTasks, currentTime: endedAt);
+  }
+
+  void _refreshCurrentTime() {
+    state = state.copyWith(currentTime: DateTime.now());
+  }
+
+  @override
+  void dispose() {
+    _ticker.cancel();
+    super.dispose();
+  }
+
+  static WorkTask _startTargetSubtask({
+    required WorkTask task,
+    required String taskId,
+    required String subtaskId,
+    required DateTime startedAt,
+  }) {
+    if (task.id != taskId) {
+      return task;
+    }
+    final WorkSubtask subtask = task.subtasks.firstWhere(
+      (WorkSubtask item) => item.id == subtaskId,
+    );
+    return task
+        .copyWith(status: WorkItemStatus.inProgress)
+        .updateSubtask(subtask.startTracking(startedAt));
+  }
+
+  static WorkTask _stopTargetSubtask({
+    required WorkTask task,
+    required String taskId,
+    required String subtaskId,
+    required DateTime endedAt,
+  }) {
+    if (task.id != taskId) {
+      return task;
+    }
+    final WorkSubtask subtask = task.subtasks.firstWhere(
+      (WorkSubtask item) => item.id == subtaskId,
+    );
+    return task.updateSubtask(subtask.stopTracking(endedAt));
+  }
+
+  static TimeTrackerState _buildInitialState() {
+    final DateTime now = DateTime.now();
+    final List<WorkTask> tasks = <WorkTask>[
+      _buildClientPortalTask(now),
+      _buildInternalToolsTask(now),
+      _buildLearningPlanTask(now),
+    ];
+    return TimeTrackerState(
+      tasks: tasks,
+      selectedTaskId: tasks.first.id,
+      currentTime: now,
+    );
+  }
+
+  static WorkTask _buildClientPortalTask(DateTime now) {
+    return WorkTask(
+      id: 'client_portal',
+      title: '客户门户改版',
+      colorValue: 0xFF5B5CE2, // 主任务识别色：靛蓝色
+      status: WorkItemStatus.inProgress,
+      createdAt: now.subtract(const Duration(days: 18)),
+      subtasks: <WorkSubtask>[
+        WorkSubtask(
+          id: 'landing_page',
+          title: '首页视觉设计',
+          status: WorkItemStatus.completed,
+          createdAt: now.subtract(const Duration(days: 16)),
+          timeEntries: <WorkTimeEntry>[
+            WorkTimeEntry(
+              id: 'landing_page_entry_1',
+              startedAt: now.subtract(const Duration(hours: 3)),
+              endedAt: now.subtract(
+                const Duration(hours: 1, minutes: 47),
+              ),
+            ),
+          ],
+        ),
+        WorkSubtask(
+          id: 'prototype_review',
+          title: '交互原型评审',
+          status: WorkItemStatus.inProgress,
+          createdAt: now.subtract(const Duration(days: 12)),
+          timeEntries: <WorkTimeEntry>[
+            WorkTimeEntry(
+              id: 'prototype_review_entry_1',
+              startedAt: now.subtract(const Duration(minutes: 41)),
+              endedAt: now.subtract(const Duration(minutes: 20)),
+            ),
+            WorkTimeEntry(
+              id: 'prototype_review_entry_2',
+              startedAt: now.subtract(
+                const Duration(minutes: 11, seconds: 42),
+              ),
+            ),
+          ],
+        ),
+        WorkSubtask(
+          id: 'design_handoff',
+          title: '设计交付整理',
+          status: WorkItemStatus.notStarted,
+          createdAt: now.subtract(const Duration(days: 7)),
+          timeEntries: <WorkTimeEntry>[],
+        ),
+      ],
+    );
+  }
+
+  static WorkTask _buildInternalToolsTask(DateTime now) {
+    return WorkTask(
+      id: 'internal_tools',
+      title: '内部工具优化',
+      colorValue: 0xFF00A389, // 主任务识别色：青绿色
+      status: WorkItemStatus.completed,
+      createdAt: now.subtract(const Duration(days: 30)),
+      subtasks: <WorkSubtask>[
+        WorkSubtask(
+          id: 'code_review',
+          title: '代码审查',
+          status: WorkItemStatus.completed,
+          createdAt: now.subtract(const Duration(days: 28)),
+          timeEntries: <WorkTimeEntry>[
+            WorkTimeEntry(
+              id: 'code_review_entry_1',
+              startedAt: now.subtract(const Duration(days: 1, hours: 4)),
+              endedAt: now.subtract(
+                const Duration(days: 1, hours: 1, minutes: 40),
+              ),
+            ),
+          ],
+        ),
+        WorkSubtask(
+          id: 'documentation',
+          title: '文档补充',
+          status: WorkItemStatus.completed,
+          createdAt: now.subtract(const Duration(days: 24)),
+          timeEntries: <WorkTimeEntry>[
+            WorkTimeEntry(
+              id: 'documentation_entry_1',
+              startedAt: now.subtract(const Duration(days: 2, minutes: 45)),
+              endedAt: now.subtract(const Duration(days: 2)),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  static WorkTask _buildLearningPlanTask(DateTime now) {
+    return WorkTask(
+      id: 'learning_plan',
+      title: '学习计划',
+      colorValue: 0xFFFF8A4C, // 主任务识别色：橙色
+      status: WorkItemStatus.notStarted,
+      createdAt: now.subtract(const Duration(days: 3)),
+      subtasks: <WorkSubtask>[
+        WorkSubtask(
+          id: 'flutter_desktop',
+          title: 'Flutter 桌面端调研',
+          status: WorkItemStatus.notStarted,
+          createdAt: now.subtract(const Duration(days: 2)),
+          timeEntries: <WorkTimeEntry>[],
+        ),
+        WorkSubtask(
+          id: 'riverpod_notes',
+          title: 'Riverpod 学习笔记',
+          status: WorkItemStatus.notStarted,
+          createdAt: now.subtract(const Duration(days: 1)),
+          timeEntries: <WorkTimeEntry>[],
+        ),
+      ],
+    );
+  }
+}

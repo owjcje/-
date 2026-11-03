@@ -1,0 +1,325 @@
+// 历史内存版组件，已由 MVVM 组件替代。
+import 'dart:ui';
+
+import 'package:flutter/material.dart';
+import 'package:work_time_tracker/application/time_tracker_state.dart';
+import 'package:work_time_tracker/core/utils/time_formatters.dart';
+import 'package:work_time_tracker/domain/entities/work_item_status.dart';
+import 'package:work_time_tracker/domain/entities/work_task.dart';
+import 'package:work_time_tracker/l10n/app_localizations.dart';
+
+class TaskSidebar extends StatelessWidget {
+  const TaskSidebar({
+    required this.tasks,
+    required this.selectedTaskId,
+    required this.currentTime,
+    required this.isCompact,
+    required this.selectedFilter,
+    required this.onTaskSelected,
+    required this.onFilterChanged,
+    required this.onSearchChanged,
+    required this.onCreateTask,
+    required this.onTaskStatusChanged,
+    super.key,
+  });
+
+  final List<WorkTask> tasks;
+  final String selectedTaskId;
+  final DateTime currentTime;
+  final bool isCompact;
+  final WorkStatusFilter selectedFilter;
+  final ValueChanged<String> onTaskSelected;
+  final ValueChanged<WorkStatusFilter> onFilterChanged;
+  final ValueChanged<String> onSearchChanged;
+  final VoidCallback onCreateTask;
+  final void Function(String taskId, WorkItemStatus status)
+      onTaskStatusChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations localizations = AppLocalizations.of(context);
+    return ColoredBox(
+      color: const Color(0xFFFAFAFC),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(20, isCompact ? 14 : 24, 20, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            _buildHeader(context, localizations),
+            const SizedBox(height: 12),
+            _buildStatusTabs(localizations),
+            const SizedBox(height: 12),
+            _buildSearchField(localizations),
+            const SizedBox(height: 12),
+            Expanded(
+              child: tasks.isEmpty
+                  ? _buildEmptyState(context, localizations)
+                  : _buildTaskList(context, localizations),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(
+    BuildContext context,
+    AppLocalizations localizations,
+  ) {
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: Text(
+            localizations.navigationTitle,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  color: const Color(0xFF737789),
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ),
+        Semantics(
+          identifier: 'workTimeTrackerPage.createTaskButton', // 自动化测试用标识：创建主任务按钮
+          child: FilledButton.icon(
+            onPressed: onCreateTask,
+            icon: const Icon(Icons.add, size: 18),
+            label: Text(localizations.createTask),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatusTabs(AppLocalizations localizations) {
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: WorkStatusFilter.values.map((WorkStatusFilter filter) {
+        return Semantics(
+          identifier: 'workTimeTrackerPage.taskStatusTab.${filter.name}', // 自动化测试用标识：主任务状态分类标签
+          child: ChoiceChip(
+            label: Text(localizations.statusFilter(filter)),
+            selected: selectedFilter == filter,
+            onSelected: (bool isSelected) {
+              if (isSelected) {
+                onFilterChanged(filter);
+              }
+            },
+          ),
+        );
+      }).toList(growable: false),
+    );
+  }
+
+  Widget _buildSearchField(AppLocalizations localizations) {
+    return Semantics(
+      identifier: 'workTimeTrackerPage.taskSearchInput', // 自动化测试用标识：主任务搜索输入框
+      child: TextField(
+        onChanged: onSearchChanged,
+        decoration: InputDecoration(
+          isDense: true,
+          hintText: localizations.taskSearchHint,
+          prefixIcon: const Icon(Icons.search, size: 20),
+          border: const OutlineInputBorder(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(
+    BuildContext context,
+    AppLocalizations localizations,
+  ) {
+    return Center(
+      child: Text(
+        localizations.noMatchingTasks,
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: const Color(0xFF85899A),
+            ),
+      ),
+    );
+  }
+
+  Widget _buildTaskList(
+    BuildContext context,
+    AppLocalizations localizations,
+  ) {
+    return ListView.separated(
+      scrollDirection: isCompact ? Axis.horizontal : Axis.vertical,
+      itemCount: tasks.length,
+      separatorBuilder: (BuildContext context, int index) {
+        return SizedBox(width: isCompact ? 12 : 0, height: isCompact ? 0 : 10);
+      },
+      itemBuilder: (BuildContext context, int index) {
+        final WorkTask task = tasks[index];
+        final Widget taskCard = _buildTaskCard(context, localizations, task);
+        return isCompact
+            ? SizedBox(width: 250, child: taskCard) // 窄窗口横向任务卡宽度
+            : taskCard;
+      },
+    );
+  }
+
+  Widget _buildTaskCard(
+    BuildContext context,
+    AppLocalizations localizations,
+    WorkTask task,
+  ) {
+    final bool isSelected = task.id == selectedTaskId;
+    return Semantics(
+      identifier: 'workTimeTrackerPage.mainTaskCard.${task.id}', // 自动化测试用标识：主任务卡片
+      button: true,
+      selected: isSelected,
+      child: Material(
+        color: isSelected ? Colors.white : Colors.transparent,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => onTaskSelected(task.id),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: _buildTaskCardDecoration(task, isSelected),
+            child: _buildTaskCardContent(context, localizations, task),
+          ),
+        ),
+      ),
+    );
+  }
+
+  BoxDecoration _buildTaskCardDecoration(WorkTask task, bool isSelected) {
+    return BoxDecoration(
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(
+        color: isSelected
+            ? Color(task.colorValue).withOpacity(0.35)
+            : const Color(0xFFE6E8F0),
+      ),
+      boxShadow: isSelected
+          ? const <BoxShadow>[
+              BoxShadow(
+                color: Color(0x0D25283A),
+                blurRadius: 18,
+                offset: Offset(0, 6),
+              ),
+            ]
+          : null,
+    );
+  }
+
+  Widget _buildTaskCardContent(
+    BuildContext context,
+    AppLocalizations localizations,
+    WorkTask task,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        _buildTaskIdentityRow(context, task),
+        const SizedBox(height: 10),
+        _buildStatusSelector(context, localizations, task),
+        const SizedBox(height: 8),
+        Semantics(
+          identifier: 'workTimeTrackerPage.taskCreatedAt.${task.id}', // 自动化测试用标识：主任务创建日期
+          child: Text(
+            localizations.createdOn(formatDate(task.createdAt)),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: const Color(0xFF85899A),
+                ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          formatDuration(task.getTotalSeconds(currentTime)),
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+                fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+              ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          localizations.subtaskCount(task.subtasks.length),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: const Color(0xFF85899A),
+              ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatusSelector(
+    BuildContext context,
+    AppLocalizations localizations,
+    WorkTask task,
+  ) {
+    return Semantics(
+      identifier: 'workTimeTrackerPage.taskStatusSelect.${task.id}', // 自动化测试用标识：主任务状态选择器
+      child: PopupMenuButton<WorkItemStatus>(
+        initialValue: task.status,
+        tooltip: localizations.selectStatus,
+        onSelected: (WorkItemStatus status) {
+          onTaskStatusChanged(task.id, status);
+        },
+        itemBuilder: (BuildContext context) {
+          return WorkItemStatus.values.map((WorkItemStatus status) {
+            return PopupMenuItem<WorkItemStatus>(
+              value: status,
+              child: Semantics(
+                identifier: 'workTimeTrackerPage.taskStatusOption.${task.id}.${status.name}', // 自动化测试用标识：主任务状态选项
+                child: Text(localizations.workItemStatus(status)),
+              ),
+            );
+          }).toList(growable: false);
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+          decoration: BoxDecoration(
+            color: Color(task.colorValue).withOpacity(0.08),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Text(
+                localizations.workItemStatus(task.status),
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: Color(task.colorValue),
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+              const SizedBox(width: 4),
+              Icon(Icons.arrow_drop_down, size: 16, color: Color(task.colorValue)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTaskIdentityRow(BuildContext context, WorkTask task) {
+    return Row(
+      children: <Widget>[
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(
+            color: Color(task.colorValue),
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 9),
+        Expanded(
+          child: Text(
+            task.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ),
+        if (task.hasRunningSubtask)
+          Icon(Icons.graphic_eq, size: 18, color: Color(task.colorValue)),
+      ],
+    );
+  }
+}
